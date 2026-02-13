@@ -27,9 +27,21 @@ public partial class InternalEntryBase
             bool original,
             EntityState defaultState = EntityState.Detached)
         {
-            var collection = original
-                ? (IList?)_containingEntry.GetOriginalValue(_complexCollection)
-                : (IList?)_containingEntry[_complexCollection];
+            IList? collection;
+            try
+            {
+                collection = original
+                    ? (IList?)_containingEntry.GetOriginalValue(_complexCollection)
+                    : (IList?)_containingEntry[_complexCollection];
+            }
+            catch (ArgumentOutOfRangeException)
+            {
+                // Out-of-range ordinal when reading collection during state transitions.
+                // This can happen when deleting items from a complex collection that contains nested collections.
+                // Using null here is safe because the entries list has already been initialized.
+                collection = null;
+            }
+
             var entries = EnsureCapacity(collection?.Count ?? 0, original, trim: false);
             if (collection != null
                 && defaultState != EntityState.Detached
@@ -360,13 +372,9 @@ public partial class InternalEntryBase
                 setOriginalState = true;
             }
 
-            // When reading collection counts during state transitions, the containing entry might have
-            // an out-of-range ordinal if it's a complex entry in a modified collection. This can happen
-            // when deleting an item from a complex collection that contains nested collections/arrays.
-            // In this case, using 0 as the count is safe because:
-            // 1. The entries list has already been properly initialized by previous operations
-            // 2. EnsureCapacity with 0 just ensures the list exists (it won't shrink an existing list)
-            // 3. The actual state management is handled by the existing entries, not the count
+            // Reading collection counts during state transitions may fail with ArgumentOutOfRangeException
+            // if the containing entry has an out-of-range ordinal (e.g., when deleting from a complex collection
+            // that contains nested collections). The exception is handled in GetOrCreateEntries.
             int originalCount;
             try
             {
@@ -374,7 +382,6 @@ public partial class InternalEntryBase
             }
             catch (ArgumentOutOfRangeException)
             {
-                // Out-of-range ordinal during state transition - use 0 to allow graceful completion
                 originalCount = 0;
             }
 
@@ -385,7 +392,6 @@ public partial class InternalEntryBase
             }
             catch (ArgumentOutOfRangeException)
             {
-                // Out-of-range ordinal during state transition - use 0 to allow graceful completion
                 currentCount = 0;
             }
 
