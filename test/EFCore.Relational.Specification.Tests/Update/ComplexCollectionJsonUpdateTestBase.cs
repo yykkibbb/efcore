@@ -79,9 +79,13 @@ public abstract class ComplexCollectionJsonUpdateTestBase<TFixture>(TFixture fix
             {
                 var company = await context.Companies.OrderBy(c => c.Id).FirstAsync();
 
+                // Verify the initial employee exists
+                Assert.Single(company.Employees!);
+                Assert.Equal("Initial Employee", company.Employees![0].Name);
+
                 // This pattern (using Where to filter) should work but was causing ArgumentOutOfRangeException
                 // when the complex collection contains elements with arrays/lists (like Employee.PhoneNumbers)
-                company.Employees = [.. company.Employees!.Where(e => e.Name != "Initial Employee")];
+                company.Employees = [.. company.Employees.Where(e => e.Name != "Initial Employee")];
 
                 ClearLog();
                 await context.SaveChangesAsync();

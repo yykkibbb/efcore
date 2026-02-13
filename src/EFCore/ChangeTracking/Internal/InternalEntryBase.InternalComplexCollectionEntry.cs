@@ -23,6 +23,32 @@ public partial class InternalEntryBase
         private readonly InternalEntryBase _containingEntry = entry;
         private readonly IComplexProperty _complexCollection = complexCollection;
 
+        /// <summary>
+        ///     Attempts to get the count of a collection property, handling ArgumentOutOfRangeException
+        ///     that may occur when the containing entry has an out-of-range ordinal during state transitions.
+        ///     This can happen when deleting items from a complex collection that contains nested collections.
+        /// </summary>
+        private int TryGetCollectionCount(bool original)
+        {
+            try
+            {
+                var collection = original
+                    ? (IList?)_containingEntry.GetOriginalValue(_complexCollection)
+                    : (IList?)_containingEntry[_complexCollection];
+                return collection?.Count ?? 0;
+            }
+            catch (ArgumentOutOfRangeException)
+            {
+                // When reading collection counts during state transitions, ArgumentOutOfRangeException can occur
+                // if the containing entry is a complex entry with an out-of-range ordinal. This happens when:
+                // 1. A complex collection item is being deleted
+                // 2. That item contains nested collections or arrays
+                // 3. EF tries to read those nested properties using the now-invalid ordinal
+                // Returning 0 is safe because the entries list has already been initialized by previous operations.
+                return 0;
+            }
+        }
+
         public List<InternalComplexEntry?> GetOrCreateEntries(
             bool original,
             EntityState defaultState = EntityState.Detached)
@@ -37,7 +63,7 @@ public partial class InternalEntryBase
             catch (ArgumentOutOfRangeException)
             {
                 // Out-of-range ordinal when reading collection during state transitions.
-                // This can happen when deleting items from a complex collection that contains nested collections.
+                // See TryGetCollectionCount for detailed explanation.
                 // Using null here is safe because the entries list has already been initialized.
                 collection = null;
             }
@@ -372,28 +398,10 @@ public partial class InternalEntryBase
                 setOriginalState = true;
             }
 
-            // Reading collection counts during state transitions may fail with ArgumentOutOfRangeException
-            // if the containing entry has an out-of-range ordinal (e.g., when deleting from a complex collection
-            // that contains nested collections). The exception is handled in GetOrCreateEntries.
-            int originalCount;
-            try
-            {
-                originalCount = ((IList?)_containingEntry.GetOriginalValue(_complexCollection))?.Count ?? 0;
-            }
-            catch (ArgumentOutOfRangeException)
-            {
-                originalCount = 0;
-            }
-
-            int currentCount;
-            try
-            {
-                currentCount = ((IList?)_containingEntry[_complexCollection])?.Count ?? 0;
-            }
-            catch (ArgumentOutOfRangeException)
-            {
-                currentCount = 0;
-            }
+            // Reading collection counts during state transitions may fail with ArgumentOutOfRangeException.
+            // See TryGetCollectionCount for detailed explanation.
+            var originalCount = TryGetCollectionCount(original: true);
+            var currentCount = TryGetCollectionCount(original: false);
 
             EnsureCapacity(originalCount, original: true, trim: false);
             EnsureCapacity(currentCount, original: false, trim: false);
