@@ -33,6 +33,7 @@ public class PropertyValuesTest
     [ConditionalFact]
     public void OriginalValues_ToObject_with_nested_nullable_complex_property()
     {
+#nullable enable
         using var ctx = new NestedComplexDb();
         
         // Test case 1: Entity with no complex property  
@@ -92,6 +93,7 @@ public class PropertyValuesTest
         Assert.NotNull(original3.Error);
         Assert.Equal("400", original3.Error.Code);
         Assert.Null(original3.Error.InnerError); // This was causing InvalidCastException before the fix
+#nullable disable
     }
 
     private class NestedComplexDb : DbContext
@@ -110,19 +112,21 @@ public class PropertyValuesTest
         }
     }
 
+#nullable enable
     private class Job
     {
         public int Id { get; set; }
-        public string Name { get; set; }
-        public JobError Error { get; set; }
+        public string Name { get; set; } = null!;
+        public JobError? Error { get; set; }
     }
 
     private class JobError
     {
-        public string Code { get; set; }
-        public string Message { get; set; }
-        public JobError InnerError { get; set; }
+        public string Code { get; set; } = null!;
+        public string Message { get; set; } = null!;
+        public JobError? InnerError { get; set; }
     }
+#nullable disable
 
     [ConditionalFact]
     public void Should_not_throw_error_when_property_do_not_exist()

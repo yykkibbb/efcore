@@ -60,6 +60,8 @@ public class ArrayPropertyValues : PropertyValues
                         continue;
                     }
                     
+                    // Cast is safe: NullableComplexProperties is built from StructuralType.GetFlattenedComplexProperties()
+                    // which returns runtime complex properties
                     ((IRuntimeComplexProperty)complexProperty).GetSetter().SetClrValueUsingContainingEntity(structuralObject, null);
                     nullComplexTypes.Add(complexProperty.ComplexType);
                 }
