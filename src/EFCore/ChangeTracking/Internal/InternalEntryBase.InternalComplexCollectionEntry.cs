@@ -361,7 +361,12 @@ public partial class InternalEntryBase
             }
 
             // When reading collection counts during state transitions, the containing entry might have
-            // an out-of-range ordinal if it's a complex entry in a modified collection. Handle this gracefully.
+            // an out-of-range ordinal if it's a complex entry in a modified collection. This can happen
+            // when deleting an item from a complex collection that contains nested collections/arrays.
+            // In this case, using 0 as the count is safe because:
+            // 1. The entries list has already been properly initialized by previous operations
+            // 2. EnsureCapacity with 0 just ensures the list exists (it won't shrink an existing list)
+            // 3. The actual state management is handled by the existing entries, not the count
             int originalCount;
             try
             {
@@ -369,6 +374,7 @@ public partial class InternalEntryBase
             }
             catch (ArgumentOutOfRangeException)
             {
+                // Out-of-range ordinal during state transition - use 0 to allow graceful completion
                 originalCount = 0;
             }
 
@@ -379,6 +385,7 @@ public partial class InternalEntryBase
             }
             catch (ArgumentOutOfRangeException)
             {
+                // Out-of-range ordinal during state transition - use 0 to allow graceful completion
                 currentCount = 0;
             }
 
