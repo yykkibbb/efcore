@@ -45,14 +45,39 @@ public class ArrayPropertyValues : PropertyValues
 
         if (_nullComplexPropertyFlags != null && NullableComplexProperties != null)
         {
+            // Track which complex properties are being set to null to avoid trying to set nested properties
+            var nullComplexTypes = new HashSet<IComplexType>();
+            
             for (var i = 0; i < _nullComplexPropertyFlags.Length; i++)
             {
                 if (_nullComplexPropertyFlags[i])
                 {
                     var complexProperty = NullableComplexProperties[i];
+                    
+                    // Skip if this property is nested within a complex type that's already null
+                    if (IsNestedInNullComplexType(complexProperty, nullComplexTypes))
+                    {
+                        continue;
+                    }
+                    
                     ((IRuntimeComplexProperty)complexProperty).GetSetter().SetClrValueUsingContainingEntity(structuralObject, null);
+                    nullComplexTypes.Add(complexProperty.ComplexType);
                 }
             }
+        }
+        
+        static bool IsNestedInNullComplexType(IComplexProperty complexProperty, HashSet<IComplexType> nullComplexTypes)
+        {
+            var declaringType = complexProperty.DeclaringType;
+            while (declaringType is IComplexType complexType)
+            {
+                if (nullComplexTypes.Contains(complexType))
+                {
+                    return true;
+                }
+                declaringType = complexType.ComplexProperty.DeclaringType;
+            }
+            return false;
         }
 
         for (var i = 0; i < _complexCollectionValues.Length; i++)

@@ -31,6 +31,100 @@ public class PropertyValuesTest
     }
 
     [ConditionalFact]
+    public void OriginalValues_ToObject_with_nested_nullable_complex_property()
+    {
+        using var ctx = new NestedComplexDb();
+        
+        // Test case 1: Entity with no complex property  
+        var job1 = new Job { Id = 1, Name = "Job with No Error" };
+        ctx.Jobs.Add(job1);
+        ctx.SaveChanges();
+        
+        var original1 = ctx.Entry(job1).OriginalValues.ToObject() as Job;
+        Assert.NotNull(original1);
+        Assert.Equal("Job with No Error", original1.Name);
+        Assert.Null(original1.Error);
+        
+        // Test case 2: Entity with nested complex properties all populated
+        var job2 = new Job
+        {
+            Id = 2,
+            Name = "Job with Error + Inner Error",
+            Error = new JobError
+            {
+                Code = "500",
+                Message = "Internal Server Error",
+                InnerError = new JobError
+                {
+                    Code = "501",
+                    Message = "Not Implemented"
+                }
+            }
+        };
+        ctx.Jobs.Add(job2);
+        ctx.SaveChanges();
+        
+        var original2 = ctx.Entry(job2).OriginalValues.ToObject() as Job;
+        Assert.NotNull(original2);
+        Assert.Equal("Job with Error + Inner Error", original2.Name);
+        Assert.NotNull(original2.Error);
+        Assert.Equal("500", original2.Error.Code);
+        Assert.NotNull(original2.Error.InnerError);
+        Assert.Equal("501", original2.Error.InnerError.Code);
+        
+        // Test case 3: Entity with null nested complex property (InnerError is null) - this was throwing InvalidCastException
+        var job3 = new Job
+        {
+            Id = 3,
+            Name = "Job with Error only",
+            Error = new JobError
+            {
+                Code = "400",
+                Message = "Bad Request"
+            }
+        };
+        ctx.Jobs.Add(job3);
+        ctx.SaveChanges();
+        
+        var original3 = ctx.Entry(job3).OriginalValues.ToObject() as Job;
+        Assert.NotNull(original3);
+        Assert.Equal("Job with Error only", original3.Name);
+        Assert.NotNull(original3.Error);
+        Assert.Equal("400", original3.Error.Code);
+        Assert.Null(original3.Error.InnerError); // This was causing InvalidCastException before the fix
+    }
+
+    private class NestedComplexDb : DbContext
+    {
+        public DbSet<Job> Jobs { get; set; }
+
+        protected internal override void OnConfiguring(DbContextOptionsBuilder optionsBuilder)
+            => optionsBuilder.UseInMemoryDatabase("NestedComplexDb");
+
+        protected internal override void OnModelCreating(ModelBuilder modelBuilder)
+        {
+            modelBuilder.Entity<Job>(b =>
+            {
+                b.ComplexProperty(x => x.Error);
+            });
+        }
+    }
+
+    private class Job
+    {
+        public int Id { get; set; }
+        public string Name { get; set; }
+        public JobError Error { get; set; }
+    }
+
+    private class JobError
+    {
+        public string Code { get; set; }
+        public string Message { get; set; }
+        public JobError InnerError { get; set; }
+    }
+
+    [ConditionalFact]
     public void Should_not_throw_error_when_property_do_not_exist()
     {
         // Arrange
