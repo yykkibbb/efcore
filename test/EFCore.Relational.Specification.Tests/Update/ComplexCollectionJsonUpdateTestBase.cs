@@ -71,6 +71,31 @@ public abstract class ComplexCollectionJsonUpdateTestBase<TFixture>(TFixture fix
             });
 
     [ConditionalFact]
+    public virtual Task Remove_element_from_complex_collection_using_Where_with_nested_array()
+        => TestHelpers.ExecuteWithStrategyInTransactionAsync(
+            CreateContext,
+            UseTransaction,
+            async context =>
+            {
+                var company = await context.Companies.OrderBy(c => c.Id).FirstAsync();
+
+                // This pattern (using Where to filter) should work but was causing ArgumentOutOfRangeException
+                // when the complex collection contains elements with arrays/lists (like Employee.PhoneNumbers)
+                company.Employees = [.. company.Employees!.Where(e => e.Name != "Initial Employee")];
+
+                ClearLog();
+                await context.SaveChangesAsync();
+            },
+            async context =>
+            {
+                using (SuspendRecordingEvents())
+                {
+                    var company = await context.Companies.OrderBy(c => c.Id).FirstAsync();
+                    Assert.Empty(company.Employees!);
+                }
+            });
+
+    [ConditionalFact]
     public virtual Task Delete_complex_collection_owner_entity_mapped_to_json()
         => TestHelpers.ExecuteWithStrategyInTransactionAsync(
             CreateContext,

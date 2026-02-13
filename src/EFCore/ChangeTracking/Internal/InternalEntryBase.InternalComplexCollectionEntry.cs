@@ -360,12 +360,30 @@ public partial class InternalEntryBase
                 setOriginalState = true;
             }
 
-            EnsureCapacity(
-                ((IList?)_containingEntry.GetOriginalValue(_complexCollection))?.Count ?? 0,
-                original: true, trim: false);
-            EnsureCapacity(
-                ((IList?)_containingEntry[_complexCollection])?.Count ?? 0,
-                original: false, trim: false);
+            // When reading collection counts during state transitions, the containing entry might have
+            // an out-of-range ordinal if it's a complex entry in a modified collection. Handle this gracefully.
+            int originalCount;
+            try
+            {
+                originalCount = ((IList?)_containingEntry.GetOriginalValue(_complexCollection))?.Count ?? 0;
+            }
+            catch (ArgumentOutOfRangeException)
+            {
+                originalCount = 0;
+            }
+
+            int currentCount;
+            try
+            {
+                currentCount = ((IList?)_containingEntry[_complexCollection])?.Count ?? 0;
+            }
+            catch (ArgumentOutOfRangeException)
+            {
+                currentCount = 0;
+            }
+
+            EnsureCapacity(originalCount, original: true, trim: false);
+            EnsureCapacity(currentCount, original: false, trim: false);
 
             var defaultState = newState == EntityState.Modified && !modifyProperties
                 ? EntityState.Unchanged
