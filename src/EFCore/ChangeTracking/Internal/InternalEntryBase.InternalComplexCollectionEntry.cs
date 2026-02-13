@@ -28,21 +28,25 @@ public partial class InternalEntryBase
             EntityState defaultState = EntityState.Detached)
         {
             IList? collection;
+            int collectionCount;
             try
             {
                 collection = original
                     ? (IList?)_containingEntry.GetOriginalValue(_complexCollection)
                     : (IList?)_containingEntry[_complexCollection];
+                collectionCount = collection?.Count ?? 0;
             }
             catch (ArgumentOutOfRangeException)
             {
                 // During state transitions, reading from the CLR collection can fail if the containing entry
                 // is a complex entry with an out-of-bounds ordinal (e.g., when deleting from a nested complex collection).
-                // In this case, use the existing entries list which has already been initialized.
+                // In this case, use the existing entries list count which has already been initialized.
                 collection = null;
+                var existingEntries = original ? _originalEntries : _entries;
+                collectionCount = existingEntries?.Count ?? 0;
             }
 
-            var entries = EnsureCapacity(collection?.Count ?? 0, original, trim: false);
+            var entries = EnsureCapacity(collectionCount, original, trim: false);
             if (collection != null
                 && defaultState != EntityState.Detached
                 && (defaultState != EntityState.Deleted || original)
@@ -372,12 +376,30 @@ public partial class InternalEntryBase
                 setOriginalState = true;
             }
 
-            // During state transitions after AcceptChanges, use the entries list count instead of reading from the CLR collection.
-            // Reading from the CLR collection can fail if the containing entry is a complex entry with an out-of-bounds ordinal
-            // (e.g., when deleting items from a complex collection that contains nested collections).
-            // The entries lists have already been populated by AcceptChanges and are the source of truth for the collection state.
-            EnsureCapacity(_originalEntries?.Count ?? 0, original: true, trim: false);
-            EnsureCapacity(_entries?.Count ?? 0, original: false, trim: false);
+            // When reading collection counts, handle the case where the containing entry is a complex entry
+            // with an out-of-bounds ordinal (can happen during state transitions when deleting from nested complex collections).
+            int originalCount;
+            try
+            {
+                originalCount = ((IList?)_containingEntry.GetOriginalValue(_complexCollection))?.Count ?? 0;
+            }
+            catch (ArgumentOutOfRangeException)
+            {
+                originalCount = _originalEntries?.Count ?? 0;
+            }
+
+            int currentCount;
+            try
+            {
+                currentCount = ((IList?)_containingEntry[_complexCollection])?.Count ?? 0;
+            }
+            catch (ArgumentOutOfRangeException)
+            {
+                currentCount = _entries?.Count ?? 0;
+            }
+
+            EnsureCapacity(originalCount, original: true, trim: false);
+            EnsureCapacity(currentCount, original: false, trim: false);
 
             var defaultState = newState == EntityState.Modified && !modifyProperties
                 ? EntityState.Unchanged
