@@ -202,6 +202,147 @@ public class PropertyValuesTest
         public string Source { get; set; }
     }
 
+    [ConditionalFact]
+    public void OriginalValues_ToObject_with_triple_nested_nullable_complex_properties()
+    {
+        var modelBuilder = InMemoryTestHelpers.Instance.CreateConventionBuilder();
+        modelBuilder.Entity<Container>(eb =>
+        {
+            eb.ComplexProperty(e => e.Level1, lb =>
+            {
+                lb.IsRequired(false);
+                lb.ComplexProperty(l1 => l1.Level2, l2b =>
+                {
+                    l2b.IsRequired(false);
+                    l2b.ComplexProperty(l2 => l2.Level3, l3b =>
+                    {
+                        l3b.IsRequired(false);
+                    });
+                });
+            });
+        });
+        var model = modelBuilder.FinalizeModel();
+
+        var serviceProvider = InMemoryTestHelpers.Instance.CreateContextServices(model);
+        var stateManager = serviceProvider.GetRequiredService<IStateManager>();
+        
+        // Test with triple nested nullable complex properties at various levels
+        var entity1 = new Container
+        {
+            Id = 1,
+            Name = "Container with null Level1",
+            Level1 = null
+        };
+        var entry1 = stateManager.GetOrCreateEntry(entity1);
+        entry1.SetEntityState(EntityState.Unchanged);
+        
+        var entity2 = new Container
+        {
+            Id = 2,
+            Name = "Container with Level1 but null Level2",
+            Level1 = new Level1Data
+            {
+                Info = "Level 1 info",
+                Level2 = null
+            }
+        };
+        var entry2 = stateManager.GetOrCreateEntry(entity2);
+        entry2.SetEntityState(EntityState.Unchanged);
+        
+        var entity3 = new Container
+        {
+            Id = 3,
+            Name = "Container with Level2 but null Level3",
+            Level1 = new Level1Data
+            {
+                Info = "Level 1 info",
+                Level2 = new Level2Data
+                {
+                    Description = "Level 2 desc",
+                    Level3 = null
+                }
+            }
+        };
+        var entry3 = stateManager.GetOrCreateEntry(entity3);
+        entry3.SetEntityState(EntityState.Unchanged);
+        
+        var entity4 = new Container
+        {
+            Id = 4,
+            Name = "Container fully populated",
+            Level1 = new Level1Data
+            {
+                Info = "Level 1 info",
+                Level2 = new Level2Data
+                {
+                    Description = "Level 2 desc",
+                    Level3 = new Level3Data
+                    {
+                        Detail = "Level 3 detail"
+                    }
+                }
+            }
+        };
+        var entry4 = stateManager.GetOrCreateEntry(entity4);
+        entry4.SetEntityState(EntityState.Unchanged);
+        
+        // Test entity1 (null Level1)
+        var original1 = new EntityEntry<Container>(entry1).OriginalValues.ToObject() as Container;
+        Assert.NotNull(original1);
+        Assert.Equal("Container with null Level1", original1.Name);
+        Assert.Null(original1.Level1);
+        
+        // Test entity2 (Level1 populated, Level2 null)
+        var original2 = new EntityEntry<Container>(entry2).OriginalValues.ToObject() as Container;
+        Assert.NotNull(original2);
+        Assert.Equal("Container with Level1 but null Level2", original2.Name);
+        Assert.NotNull(original2.Level1);
+        Assert.Equal("Level 1 info", original2.Level1.Info);
+        Assert.Null(original2.Level1.Level2);
+        
+        // Test entity3 (Level2 populated, Level3 null)
+        var original3 = new EntityEntry<Container>(entry3).OriginalValues.ToObject() as Container;
+        Assert.NotNull(original3);
+        Assert.Equal("Container with Level2 but null Level3", original3.Name);
+        Assert.NotNull(original3.Level1);
+        Assert.NotNull(original3.Level1.Level2);
+        Assert.Equal("Level 2 desc", original3.Level1.Level2.Description);
+        Assert.Null(original3.Level1.Level2.Level3);
+        
+        // Test entity4 (fully populated)
+        var original4 = new EntityEntry<Container>(entry4).OriginalValues.ToObject() as Container;
+        Assert.NotNull(original4);
+        Assert.Equal("Container fully populated", original4.Name);
+        Assert.NotNull(original4.Level1);
+        Assert.NotNull(original4.Level1.Level2);
+        Assert.NotNull(original4.Level1.Level2.Level3);
+        Assert.Equal("Level 3 detail", original4.Level1.Level2.Level3.Detail);
+    }
+
+    private class Container
+    {
+        public int Id { get; set; }
+        public string Name { get; set; }
+        public Level1Data Level1 { get; set; }
+    }
+
+    private class Level1Data
+    {
+        public string Info { get; set; }
+        public Level2Data Level2 { get; set; }
+    }
+
+    private class Level2Data
+    {
+        public string Description { get; set; }
+        public Level3Data Level3 { get; set; }
+    }
+
+    private class Level3Data
+    {
+        public string Detail { get; set; }
+    }
+
     private class NestedComplexDb : DbContext
     {
         public DbSet<Job> Jobs { get; set; }
