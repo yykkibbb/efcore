@@ -288,26 +288,17 @@ public abstract class EntryPropertyValues : PropertyValues
         {
             flags = new bool[nullableComplexProperties.Count];
             
-            // Track which complex types are null to avoid marking nested properties as null
-            var nullComplexTypes = new HashSet<IComplexType>();
-            
             for (var i = 0; i < nullableComplexProperties.Count; i++)
             {
                 var complexProperty = nullableComplexProperties[i];
                 
                 // Skip if this property is nested within a complex type that's already null
-                if (IsNestedInNullComplexType(complexProperty, nullComplexTypes))
+                if (IsContainingComplexPropertyNull(complexProperty))
                 {
                     continue;
                 }
                 
-                var isNull = GetValueInternal(InternalEntry, complexProperty) == null;
-                flags[i] = isNull;
-                
-                if (isNull)
-                {
-                    nullComplexTypes.Add(complexProperty.ComplexType);
-                }
+                flags[i] = GetValueInternal(InternalEntry, complexProperty) == null;
             }
         }
 
@@ -325,16 +316,17 @@ public abstract class EntryPropertyValues : PropertyValues
         return cloned;
     }
     
-    private static bool IsNestedInNullComplexType(IComplexProperty complexProperty, HashSet<IComplexType> nullComplexTypes)
+    private bool IsContainingComplexPropertyNull(IComplexProperty complexProperty)
     {
         var declaringType = complexProperty.DeclaringType;
         while (declaringType is IComplexType complexType)
         {
-            if (nullComplexTypes.Contains(complexType))
+            var containingProperty = complexType.ComplexProperty;
+            if (GetValueInternal(InternalEntry, containingProperty) == null)
             {
                 return true;
             }
-            declaringType = complexType.ComplexProperty.DeclaringType;
+            declaringType = containingProperty.DeclaringType;
         }
         return false;
     }
