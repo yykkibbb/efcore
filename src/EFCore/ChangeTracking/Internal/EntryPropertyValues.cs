@@ -284,7 +284,7 @@ public abstract class EntryPropertyValues : PropertyValues
 
         bool[]? nullValues = null;
         var nullableComplexProperties = NullableComplexProperties;
-        if (!UseOldBehavior37516 && nullableComplexProperties != null && nullableComplexProperties.Count > 0)
+        if (nullableComplexProperties != null && nullableComplexProperties.Count > 0)
         {
             nullValues = new bool[nullableComplexProperties.Count];
             
@@ -293,7 +293,8 @@ public abstract class EntryPropertyValues : PropertyValues
                 var complexProperty = nullableComplexProperties[i];
                 
                 // Skip if the containing complex property (if any) is null
-                if (complexProperty.DeclaringType is IComplexType { ComplexProperty: var containingProperty }
+                if (!UseOldBehavior37516
+                    && complexProperty.DeclaringType is IComplexType { ComplexProperty: var containingProperty }
                     && !containingProperty.IsCollection
                     && GetValueInternal(InternalEntry, containingProperty) == null)
                 {

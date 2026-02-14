@@ -508,49 +508,36 @@ public class ArrayPropertyValues : PropertyValues
             var properties = complexType.GetFlattenedProperties().AsList();
             var values = new object?[properties.Count];
 
-            // First pass: identify which complex properties are null (recursively)
-            var nullComplexTypes = new HashSet<IComplexType>();
-            IdentifyNullComplexTypes((IRuntimeComplexType)complexType, complexObject, nullComplexTypes);
-
-            // Second pass: get values for flattened properties
+            // Get values for flattened properties, navigating through complex property chains as needed
             for (var i = 0; i < properties.Count; i++)
             {
                 var property = properties[i];
+                object? targetObject = complexObject;
                 
-                // Navigate through complex property chain to get the correct instance
-                object? currentObject = complexObject;
-                var declaringType = property.DeclaringType;
-                
-                // Build path from complexType down to property's declaring type
-                var complexPropertyPath = new Stack<IComplexProperty>();
-                while (declaringType is IComplexType declaringComplexType
-                    && declaringComplexType != complexType)
+                // For properties on nested complex types, navigate to get the correct instance
+                if (property.DeclaringType is IComplexType propDeclaringType && propDeclaringType != complexType)
                 {
-                    complexPropertyPath.Push(declaringComplexType.ComplexProperty);
-                    declaringType = declaringComplexType.ComplexProperty.DeclaringType;
-                }
-                
-                // Navigate down the path
-                while (complexPropertyPath.Count > 0 && currentObject != null)
-                {
-                    var cp = complexPropertyPath.Pop();
-                    if (nullComplexTypes.Contains(cp.ComplexType))
+                    // Build path from complexType to property's declaring type
+                    var pathToTarget = new List<IComplexProperty>();
+                    var currentType = propDeclaringType;
+                    while (currentType != complexType)
                     {
-                        currentObject = null;
-                        break;
+                        pathToTarget.Insert(0, currentType.ComplexProperty);
+                        currentType = (IRuntimeComplexType)currentType.ComplexProperty.DeclaringType;
                     }
-                    currentObject = cp.GetGetter().GetClrValue(currentObject);
+                    
+                    // Navigate to the target object
+                    foreach (var cp in pathToTarget)
+                    {
+                        targetObject = cp.GetGetter().GetClrValue(targetObject!);
+                        if (targetObject == null)
+                        {
+                            break;
+                        }
+                    }
                 }
                 
-                if (currentObject == null)
-                {
-                    values[i] = null;
-                }
-                else
-                {
-                    var getter = property.GetGetter();
-                    values[i] = getter.GetClrValue(currentObject);
-                }
+                values[i] = targetObject == null ? null : property.GetGetter().GetClrValue(targetObject);
             }
 
             bool[]? nullValues = null;
@@ -565,15 +552,37 @@ public class ArrayPropertyValues : PropertyValues
                     {
                         var cp = nullableComplexProperties[i];
                         
-                        // Skip if the containing complex property (if any) is null
-                        if (cp.DeclaringType is IComplexType { ComplexProperty: var containingProperty }
-                            && !containingProperty.IsCollection
-                            && nullComplexTypes.Contains(cp.DeclaringType))
+                        // Check if the complex property is null by navigating to get its value
+                        object? targetObject = complexObject;
+                        if (cp.DeclaringType is IComplexType cpDeclaringType && cpDeclaringType != complexType)
+                        {
+                            // Build path to the complex property's declaring type
+                            var pathToTarget = new List<IComplexProperty>();
+                            var currentType = cpDeclaringType;
+                            while (currentType != complexType)
+                            {
+                                pathToTarget.Insert(0, currentType.ComplexProperty);
+                                currentType = (IRuntimeComplexType)currentType.ComplexProperty.DeclaringType;
+                            }
+                            
+                            // Navigate to target
+                            foreach (var cpInPath in pathToTarget)
+                            {
+                                targetObject = cpInPath.GetGetter().GetClrValue(targetObject!);
+                                if (targetObject == null)
+                                {
+                                    break;
+                                }
+                            }
+                        }
+                        
+                        // Skip if the containing object is null (means this property is nested in a null complex type)
+                        if (targetObject == null)
                         {
                             continue;
                         }
                         
-                        nullValues[i] = nullComplexTypes.Contains(cp.ComplexType);
+                        nullValues[i] = cp.GetGetter().GetClrValue(targetObject) == null;
                     }
                 }
             }
@@ -588,42 +597,6 @@ public class ArrayPropertyValues : PropertyValues
             }
 
             return complexPropertyValues;
-        }
-
-        static void IdentifyNullComplexTypes(
-            IComplexType complexType,
-            object complexObject,
-            HashSet<IComplexType> nullComplexTypes)
-        {
-            foreach (var cp in complexType.GetComplexProperties())
-            {
-                if (!cp.IsCollection)
-                {
-                    var value = cp.GetGetter().GetClrValue(complexObject);
-                    if (value == null)
-                    {
-                        nullComplexTypes.Add(cp.ComplexType);
-                        // Recursively mark all nested complex types as null
-                        MarkAllNestedComplexTypesAsNull(cp.ComplexType, nullComplexTypes);
-                    }
-                    else
-                    {
-                        // Recursively check nested complex types
-                        IdentifyNullComplexTypes(cp.ComplexType, value, nullComplexTypes);
-                    }
-                }
-            }
-        }
-
-        static void MarkAllNestedComplexTypesAsNull(IComplexType complexType, HashSet<IComplexType> nullComplexTypes)
-        {
-            foreach (var cp in complexType.GetFlattenedComplexProperties())
-            {
-                if (!cp.IsCollection)
-                {
-                    nullComplexTypes.Add(cp.ComplexType);
-                }
-            }
         }
     }
 }

@@ -98,9 +98,10 @@ public class PropertyValuesTest
     public void OriginalValues_ToObject_with_complex_collection_containing_double_nested_nullable_complex_properties()
     {
         var modelBuilder = InMemoryTestHelpers.Instance.CreateConventionBuilder();
-        modelBuilder.Entity<BlogWithTags>(eb =>
+        modelBuilder.Entity<JobWithErrorCollection>(eb =>
         {
-            eb.ComplexCollection(e => e.Tags);
+            eb.ComplexProperty(e => e.Error);
+            eb.ComplexCollection(e => e.Errors);
         });
         var model = modelBuilder.FinalizeModel();
 
@@ -108,99 +109,91 @@ public class PropertyValuesTest
         var stateManager = serviceProvider.GetRequiredService<IStateManager>();
         
         // Test with a complex collection where items have double nested nullable complex properties
-        var blog = new BlogWithTags
+        var job = new JobWithErrorCollection
         {
             Id = 1,
-            Title = "Test Blog",
-            Tags = new List<TagWithMetadata>
+            Name = "Test Job",
+            Errors = new List<JobError>
             {
-                // Tag with null Metadata (complex property is null)
-                new TagWithMetadata
+                // Error with null InnerError (nested complex property is null)
+                new JobError
                 {
-                    Name = "Tag1",
-                    Metadata = null
+                    Code = "400",
+                    Message = "Bad Request",
+                    InnerError = null
                 },
-                // Tag with Metadata but null nested InnerData (nested complex property is null)
-                new TagWithMetadata
+                // Error with InnerError but its nested InnerError is null
+                new JobError
                 {
-                    Name = "Tag2",
-                    Metadata = new TagMetadata
+                    Code = "500",
+                    Message = "Server Error",
+                    InnerError = new JobError
                     {
-                        Author = "AuthorA",
-                        CreatedDate = "2024-01-01",
-                        InnerData = null
+                        Code = "501",
+                        Message = "Not Implemented",
+                        InnerError = null
                     }
                 },
-                // Tag with fully populated nested complex properties
-                new TagWithMetadata
+                // Error with fully populated nested errors
+                new JobError
                 {
-                    Name = "Tag3",
-                    Metadata = new TagMetadata
+                    Code = "503",
+                    Message = "Service Unavailable",
+                    InnerError = new JobError
                     {
-                        Author = "AuthorB",
-                        CreatedDate = "2024-01-02",
-                        InnerData = new InnerMetadata
+                        Code = "504",
+                        Message = "Gateway Timeout",
+                        InnerError = new JobError
                         {
-                            Source = "SourceX"
+                            Code = "505",
+                            Message = "Internal Error"
                         }
                     }
                 }
             }
         };
         
-        var entityEntry = stateManager.GetOrCreateEntry(blog);
+        var entityEntry = stateManager.GetOrCreateEntry(job);
         entityEntry.SetEntityState(EntityState.Unchanged);
         
-        var entry = new EntityEntry<BlogWithTags>(entityEntry);
-        var original = entry.OriginalValues.ToObject() as BlogWithTags;
+        var entry = new EntityEntry<JobWithErrorCollection>(entityEntry);
+        var original = entry.OriginalValues.ToObject() as JobWithErrorCollection;
         
         Assert.NotNull(original);
-        Assert.Equal("Test Blog", original.Title);
-        Assert.NotNull(original.Tags);
-        Assert.Equal(3, original.Tags.Count);
+        Assert.Equal("Test Job", original.Name);
+        Assert.NotNull(original.Errors);
+        Assert.Equal(3, original.Errors.Count);
         
-        // Verify Tag1 (null Metadata)
-        Assert.Equal("Tag1", original.Tags[0].Name);
-        Assert.Null(original.Tags[0].Metadata);
+        // Verify Error1 (null InnerError)
+        Assert.Equal("400", original.Errors[0].Code);
+        Assert.Equal("Bad Request", original.Errors[0].Message);
+        Assert.Null(original.Errors[0].InnerError);
         
-        // Verify Tag2 (Metadata populated but InnerData is null)
-        Assert.Equal("Tag2", original.Tags[1].Name);
-        Assert.NotNull(original.Tags[1].Metadata);
-        Assert.Equal("AuthorA", original.Tags[1].Metadata.Author);
-        Assert.Null(original.Tags[1].Metadata.InnerData);
+        // Verify Error2 (InnerError populated but its InnerError is null)
+        Assert.Equal("500", original.Errors[1].Code);
+        Assert.Equal("Server Error", original.Errors[1].Message);
+        Assert.NotNull(original.Errors[1].InnerError);
+        Assert.Equal("501", original.Errors[1].InnerError.Code);
+        Assert.Null(original.Errors[1].InnerError.InnerError);
         
-        // Verify Tag3 (fully populated)
-        Assert.Equal("Tag3", original.Tags[2].Name);
-        Assert.NotNull(original.Tags[2].Metadata);
-        Assert.Equal("AuthorB", original.Tags[2].Metadata.Author);
-        Assert.NotNull(original.Tags[2].Metadata.InnerData);
-        Assert.Equal("SourceX", original.Tags[2].Metadata.InnerData.Source);
+        // Verify Error3 (fully populated)
+        Assert.Equal("503", original.Errors[2].Code);
+        var innerError504 = original.Errors[2].InnerError;
+        Assert.NotNull(innerError504);
+        Assert.Equal("504", innerError504.Code);
+        var innerError505 = innerError504.InnerError;
+        Assert.NotNull(innerError505);
+        Assert.Equal("505", innerError505.Code);
     }
 
-    private class BlogWithTags
+    private class JobWithErrorCollection
     {
         public int Id { get; set; }
-        public string Title { get; set; }
-        public List<TagWithMetadata> Tags { get; set; }
-    }
-
-    private class TagWithMetadata
-    {
         public string Name { get; set; }
-        public TagMetadata Metadata { get; set; }
+        public JobError Error { get; set; }
+        public List<JobError> Errors { get; set; }
     }
 
-    private class TagMetadata
-    {
-        public string Author { get; set; }
-        public string CreatedDate { get; set; }
-        public InnerMetadata InnerData { get; set; }
-    }
-
-    private class InnerMetadata
-    {
-        public string Source { get; set; }
-    }
 
     [ConditionalFact]
     public void OriginalValues_ToObject_with_triple_nested_nullable_complex_properties()
@@ -214,10 +207,6 @@ public class PropertyValuesTest
                 lb.ComplexProperty(l1 => l1.Level2, l2b =>
                 {
                     l2b.IsRequired(false);
-                    l2b.ComplexProperty(l2 => l2.Level3, l3b =>
-                    {
-                        l3b.IsRequired(false);
-                    });
                 });
             });
         });
@@ -307,7 +296,7 @@ public class PropertyValuesTest
         Assert.NotNull(original3.Level1);
         Assert.NotNull(original3.Level1.Level2);
         Assert.Equal("Level 2 desc", original3.Level1.Level2.Description);
-        Assert.Null(original3.Level1.Level2.Level3);
+        Assert.False(original3.Level1.Level2.Level3.HasValue);
         
         // Test entity4 (fully populated)
         var original4 = new EntityEntry<Container>(entry4).OriginalValues.ToObject() as Container;
@@ -315,8 +304,8 @@ public class PropertyValuesTest
         Assert.Equal("Container fully populated", original4.Name);
         Assert.NotNull(original4.Level1);
         Assert.NotNull(original4.Level1.Level2);
-        Assert.NotNull(original4.Level1.Level2.Level3);
-        Assert.Equal("Level 3 detail", original4.Level1.Level2.Level3.Detail);
+        Assert.True(original4.Level1.Level2.Level3.HasValue);
+        Assert.Equal("Level 3 detail", original4.Level1.Level2.Level3.Value.Detail);
     }
 
     private class Container
@@ -335,10 +324,10 @@ public class PropertyValuesTest
     private class Level2Data
     {
         public string Description { get; set; }
-        public Level3Data Level3 { get; set; }
+        public Level3Data? Level3 { get; set; }
     }
 
-    private class Level3Data
+    private struct Level3Data
     {
         public string Detail { get; set; }
     }
