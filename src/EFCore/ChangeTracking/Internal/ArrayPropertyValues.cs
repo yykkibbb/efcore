@@ -46,13 +46,14 @@ public class ArrayPropertyValues : PropertyValues
         if (_nullComplexPropertyFlags != null && NullableComplexProperties != null)
         {
             var isValueType = StructuralType.ClrType.IsValueType;
+            var isComplexType = StructuralType is IComplexType;
             
             for (var i = 0; i < _nullComplexPropertyFlags.Length; i++)
             {
                 if (_nullComplexPropertyFlags[i])
                 {
                     var complexProperty = NullableComplexProperties[i];
-                    if (isValueType)
+                    if (isValueType || isComplexType)
                     {
                         structuralObject = ((IRuntimeComplexProperty)complexProperty).GetSetter().SetClrValue(structuralObject, null);
                     }
@@ -501,11 +502,49 @@ public class ArrayPropertyValues : PropertyValues
             var properties = complexType.GetFlattenedProperties().AsList();
             var values = new object?[properties.Count];
 
+            // First pass: identify which complex properties are null (recursively)
+            var nullComplexTypes = new HashSet<IComplexType>();
+            IdentifyNullComplexTypes((IRuntimeComplexType)complexType, complexObject, nullComplexTypes);
+
+            // Second pass: get values for flattened properties
             for (var i = 0; i < properties.Count; i++)
             {
                 var property = properties[i];
-                var getter = property.GetGetter();
-                values[i] = getter.GetClrValue(complexObject);
+                
+                // Navigate through complex property chain to get the correct instance
+                object? currentObject = complexObject;
+                var declaringType = property.DeclaringType;
+                
+                // Build path from complexType down to property's declaring type
+                var complexPropertyPath = new Stack<IComplexProperty>();
+                while (declaringType is IComplexType declaringComplexType
+                    && declaringComplexType != complexType)
+                {
+                    complexPropertyPath.Push(declaringComplexType.ComplexProperty);
+                    declaringType = declaringComplexType.ComplexProperty.DeclaringType;
+                }
+                
+                // Navigate down the path
+                while (complexPropertyPath.Count > 0 && currentObject != null)
+                {
+                    var cp = complexPropertyPath.Pop();
+                    if (nullComplexTypes.Contains(cp.ComplexType))
+                    {
+                        currentObject = null;
+                        break;
+                    }
+                    currentObject = cp.GetGetter().GetClrValue(currentObject);
+                }
+                
+                if (currentObject == null)
+                {
+                    values[i] = null;
+                }
+                else
+                {
+                    var getter = property.GetGetter();
+                    values[i] = getter.GetClrValue(currentObject);
+                }
             }
 
             bool[]? nullValues = null;
@@ -523,12 +562,12 @@ public class ArrayPropertyValues : PropertyValues
                         // Skip if the containing complex property (if any) is null
                         if (cp.DeclaringType is IComplexType { ComplexProperty: var containingProperty }
                             && !containingProperty.IsCollection
-                            && containingProperty.GetGetter().GetClrValue(complexObject) == null)
+                            && nullComplexTypes.Contains(cp.DeclaringType))
                         {
                             continue;
                         }
                         
-                        nullValues[i] = cp.GetGetter().GetClrValue(complexObject) == null;
+                        nullValues[i] = nullComplexTypes.Contains(cp.ComplexType);
                     }
                 }
             }
@@ -543,6 +582,42 @@ public class ArrayPropertyValues : PropertyValues
             }
 
             return complexPropertyValues;
+        }
+
+        static void IdentifyNullComplexTypes(
+            IComplexType complexType,
+            object complexObject,
+            HashSet<IComplexType> nullComplexTypes)
+        {
+            foreach (var cp in complexType.GetComplexProperties())
+            {
+                if (!cp.IsCollection)
+                {
+                    var value = cp.GetGetter().GetClrValue(complexObject);
+                    if (value == null)
+                    {
+                        nullComplexTypes.Add(cp.ComplexType);
+                        // Recursively mark all nested complex types as null
+                        MarkAllNestedComplexTypesAsNull(cp.ComplexType, nullComplexTypes);
+                    }
+                    else
+                    {
+                        // Recursively check nested complex types
+                        IdentifyNullComplexTypes(cp.ComplexType, value, nullComplexTypes);
+                    }
+                }
+            }
+        }
+
+        static void MarkAllNestedComplexTypesAsNull(IComplexType complexType, HashSet<IComplexType> nullComplexTypes)
+        {
+            foreach (var cp in complexType.GetFlattenedComplexProperties())
+            {
+                if (!cp.IsCollection)
+                {
+                    nullComplexTypes.Add(cp.ComplexType);
+                }
+            }
         }
     }
 }

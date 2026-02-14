@@ -94,7 +94,7 @@ public class PropertyValuesTest
         Assert.Null(original3.Error.InnerError); // This was causing InvalidCastException before the fix
     }
 
-    [ConditionalFact(Skip = "Complex collection with nested nullable complex properties not yet fully supported. Issue #31411")]
+    [ConditionalFact]
     public void OriginalValues_ToObject_with_complex_collection_containing_double_nested_nullable_complex_properties()
     {
         var modelBuilder = InMemoryTestHelpers.Instance.CreateConventionBuilder();
