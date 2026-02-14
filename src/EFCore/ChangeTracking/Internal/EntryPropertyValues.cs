@@ -282,27 +282,29 @@ public abstract class EntryPropertyValues : PropertyValues
             values[i] = GetValueInternal(InternalEntry, Properties[i]);
         }
 
-        bool[]? flags = null;
+        bool[]? nullValues = null;
         var nullableComplexProperties = NullableComplexProperties;
-        if (nullableComplexProperties != null && nullableComplexProperties.Count > 0)
+        if (!UseOldBehavior37516 && nullableComplexProperties != null && nullableComplexProperties.Count > 0)
         {
-            flags = new bool[nullableComplexProperties.Count];
+            nullValues = new bool[nullableComplexProperties.Count];
             
             for (var i = 0; i < nullableComplexProperties.Count; i++)
             {
                 var complexProperty = nullableComplexProperties[i];
                 
-                // Skip if this property is nested within a complex type that's already null
-                if (IsContainingComplexPropertyNull(complexProperty))
+                // Skip if the containing complex property (if any) is null
+                if (complexProperty.DeclaringType is IComplexType { ComplexProperty: var containingProperty }
+                    && !containingProperty.IsCollection
+                    && GetValueInternal(InternalEntry, containingProperty) == null)
                 {
                     continue;
                 }
                 
-                flags[i] = GetValueInternal(InternalEntry, complexProperty) == null;
+                nullValues[i] = GetValueInternal(InternalEntry, complexProperty) == null;
             }
         }
 
-        var cloned = new ArrayPropertyValues(InternalEntry, values, flags);
+        var cloned = new ArrayPropertyValues(InternalEntry, values, nullValues);
 
         foreach (var complexProperty in ComplexCollectionProperties)
         {
@@ -314,21 +316,6 @@ public abstract class EntryPropertyValues : PropertyValues
         }
 
         return cloned;
-    }
-    
-    private bool IsContainingComplexPropertyNull(IComplexProperty complexProperty)
-    {
-        var declaringType = complexProperty.DeclaringType;
-        while (declaringType is IComplexType complexType)
-        {
-            var containingProperty = complexType.ComplexProperty;
-            if (GetValueInternal(InternalEntry, containingProperty) == null)
-            {
-                return true;
-            }
-            declaringType = containingProperty.DeclaringType;
-        }
-        return false;
     }
 
     /// <summary>

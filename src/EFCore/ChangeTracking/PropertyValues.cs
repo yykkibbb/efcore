@@ -29,7 +29,7 @@ public abstract class PropertyValues
     private static readonly bool UseOldBehavior37249 =
         AppContext.TryGetSwitch("Microsoft.EntityFrameworkCore.Issue37249", out var enabled) && enabled;
 
-    private static readonly bool UseOldBehavior37516 =
+    internal static readonly bool UseOldBehavior37516 =
         AppContext.TryGetSwitch("Microsoft.EntityFrameworkCore.Issue37516", out var enabled37516) && enabled37516;
 
     private readonly IReadOnlyList<IComplexProperty> _complexCollectionProperties;
@@ -47,7 +47,7 @@ public abstract class PropertyValues
         InternalEntry = internalEntry;
 
         var complexCollectionProperties = new List<IComplexProperty>();
-        var nullableComplexProperties = UseOldBehavior37249 || UseOldBehavior37516 ? null : new List<IComplexProperty>();
+        var nullableComplexProperties = UseOldBehavior37249 ? null : new List<IComplexProperty>();
 
         foreach (var complexProperty in internalEntry.StructuralType.GetFlattenedComplexProperties())
         {
@@ -55,7 +55,7 @@ public abstract class PropertyValues
             {
                 complexCollectionProperties.Add(complexProperty);
             }
-            else if (!UseOldBehavior37249 && !UseOldBehavior37516 && complexProperty.IsNullable && !complexProperty.IsShadowProperty())
+            else if (!UseOldBehavior37249 && complexProperty.IsNullable && !complexProperty.IsShadowProperty())
             {
                 nullableComplexProperties!.Add(complexProperty);
             }

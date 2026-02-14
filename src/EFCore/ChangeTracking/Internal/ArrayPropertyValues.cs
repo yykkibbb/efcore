@@ -492,53 +492,39 @@ public class ArrayPropertyValues : PropertyValues
             var properties = complexType.GetFlattenedProperties().AsList();
             var values = new object?[properties.Count];
 
-            // Get values for flattened properties, skipping those in null complex types
             for (var i = 0; i < properties.Count; i++)
             {
                 var property = properties[i];
-                
-                // Skip properties declared in null complex types
-                if (IsContainingComplexPropertyNull(property, complexObject))
-                {
-                    values[i] = null;
-                }
-                else
-                {
-                    var getter = property.GetGetter();
-                    values[i] = getter.GetClrValue(complexObject);
-                }
+                var getter = property.GetGetter();
+                values[i] = getter.GetClrValue(complexObject);
             }
 
-            // Compute null flags for nullable complex properties
-            bool[]? flags = null;
-            var nullableComplexProperties = new List<IComplexProperty>();
-            foreach (var cp in complexType.GetFlattenedComplexProperties())
+            bool[]? nullValues = null;
+            if (!UseOldBehavior37516)
             {
-                if (!cp.IsCollection && cp.IsNullable && !cp.IsShadowProperty())
+                var nullableComplexProperties = new ArrayPropertyValues(entry, values, null).NullableComplexProperties;
+                if (nullableComplexProperties != null && nullableComplexProperties.Count > 0)
                 {
-                    nullableComplexProperties.Add(cp);
-                }
-            }
+                    nullValues = new bool[nullableComplexProperties.Count];
 
-            if (nullableComplexProperties.Count > 0)
-            {
-                flags = new bool[nullableComplexProperties.Count];
-
-                for (var i = 0; i < nullableComplexProperties.Count; i++)
-                {
-                    var cp = nullableComplexProperties[i];
-                    
-                    // Skip if this property is nested within a complex type that's already null
-                    if (IsContainingComplexPropertyNull(cp, complexObject))
+                    for (var i = 0; i < nullableComplexProperties.Count; i++)
                     {
-                        continue;
+                        var cp = nullableComplexProperties[i];
+                        
+                        // Skip if the containing complex property (if any) is null
+                        if (cp.DeclaringType is IComplexType { ComplexProperty: var containingProperty }
+                            && !containingProperty.IsCollection
+                            && containingProperty.GetGetter().GetClrValue(complexObject) == null)
+                        {
+                            continue;
+                        }
+                        
+                        nullValues[i] = cp.GetGetter().GetClrValue(complexObject) == null;
                     }
-                    
-                    flags[i] = cp.GetGetter().GetClrValue(complexObject) == null;
                 }
             }
 
-            var complexPropertyValues = new ArrayPropertyValues(entry, values, flags);
+            var complexPropertyValues = new ArrayPropertyValues(entry, values, nullValues);
 
             foreach (var nestedComplexProperty in complexPropertyValues.ComplexCollectionProperties)
             {
@@ -548,21 +534,6 @@ public class ArrayPropertyValues : PropertyValues
             }
 
             return complexPropertyValues;
-        }
-        
-        static bool IsContainingComplexPropertyNull(IPropertyBase propertyBase, object complexObject)
-        {
-            var declaringType = propertyBase.DeclaringType;
-            while (declaringType is IComplexType complexType)
-            {
-                var containingProperty = complexType.ComplexProperty;
-                if (containingProperty.GetGetter().GetClrValue(complexObject) == null)
-                {
-                    return true;
-                }
-                declaringType = containingProperty.DeclaringType;
-            }
-            return false;
         }
     }
 }
