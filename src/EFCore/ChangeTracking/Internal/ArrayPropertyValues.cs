@@ -43,10 +43,11 @@ public class ArrayPropertyValues : PropertyValues
         var structuralObject = StructuralType.GetOrCreateMaterializer(MaterializerSource)(
             new MaterializationContext(new ValueBuffer(_values), InternalEntry.Context));
 
-        if (_nullComplexPropertyFlags != null && NullableComplexProperties != null)
+        if (_nullComplexPropertyFlags != null && NullableComplexProperties != null && StructuralType is not IComplexType)
         {
+            // Only handle nullable complex properties for entities, not for complex collection items
+            // Complex collection items' nested nulls are handled recursively
             var isValueType = StructuralType.ClrType.IsValueType;
-            var isComplexType = StructuralType is IComplexType;
             
             for (var i = 0; i < _nullComplexPropertyFlags.Length; i++)
             {
@@ -54,18 +55,13 @@ public class ArrayPropertyValues : PropertyValues
                 {
                     var complexProperty = NullableComplexProperties[i];
                     
-                    // Only set if the complex property is declared directly on the current structural type
-                    // Nested properties will be set when ToObject() is called recursively on them
-                    if (complexProperty.DeclaringType == StructuralType)
+                    if (isValueType)
                     {
-                        if (isValueType || isComplexType)
-                        {
-                            structuralObject = ((IRuntimeComplexProperty)complexProperty).GetSetter().SetClrValue(structuralObject, null);
-                        }
-                        else
-                        {
-                            ((IRuntimeComplexProperty)complexProperty).GetSetter().SetClrValueUsingContainingEntity(structuralObject, null);
-                        }
+                        structuralObject = ((IRuntimeComplexProperty)complexProperty).GetSetter().SetClrValue(structuralObject, null);
+                    }
+                    else
+                    {
+                        ((IRuntimeComplexProperty)complexProperty).GetSetter().SetClrValueUsingContainingEntity(structuralObject, null);
                     }
                 }
             }
