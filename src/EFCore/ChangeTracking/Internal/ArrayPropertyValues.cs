@@ -45,12 +45,21 @@ public class ArrayPropertyValues : PropertyValues
 
         if (_nullComplexPropertyFlags != null && NullableComplexProperties != null)
         {
+            var isValueType = StructuralType.ClrType.IsValueType;
+            
             for (var i = 0; i < _nullComplexPropertyFlags.Length; i++)
             {
                 if (_nullComplexPropertyFlags[i])
                 {
                     var complexProperty = NullableComplexProperties[i];
-                    ((IRuntimeComplexProperty)complexProperty).GetSetter().SetClrValueUsingContainingEntity(structuralObject, null);
+                    if (isValueType)
+                    {
+                        structuralObject = ((IRuntimeComplexProperty)complexProperty).GetSetter().SetClrValue(structuralObject, null);
+                    }
+                    else
+                    {
+                        ((IRuntimeComplexProperty)complexProperty).GetSetter().SetClrValueUsingContainingEntity(structuralObject, null);
+                    }
                 }
             }
         }
