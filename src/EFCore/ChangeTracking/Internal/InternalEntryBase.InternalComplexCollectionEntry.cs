@@ -17,11 +17,51 @@ public partial class InternalEntryBase
 {
     private struct InternalComplexCollectionEntry(InternalEntryBase entry, IComplexProperty complexCollection)
     {
+        private static readonly bool UseOldBehavior37585 =
+            AppContext.TryGetSwitch("Microsoft.EntityFrameworkCore.Issue37585", out var enabled) && enabled;
+
         private List<InternalComplexEntry?>? _entries;
         private List<InternalComplexEntry?>? _originalEntries;
         private bool _isModified;
         private readonly InternalEntryBase _containingEntry = entry;
         private readonly IComplexProperty _complexCollection = complexCollection;
+
+        /// <summary>
+        ///     Gets the count of a collection property, safely handling cases where the containing entry
+        ///     has an out-of-bounds ordinal during state transitions.
+        /// </summary>
+        private int GetCollectionCount(bool original)
+        {
+            if (UseOldBehavior37585)
+            {
+                // Old behavior: directly access CLR collection (may throw ArgumentOutOfRangeException)
+                var col = original
+                    ? (IList?)_containingEntry.GetOriginalValue(_complexCollection)
+                    : (IList?)_containingEntry[_complexCollection];
+                return col?.Count ?? 0;
+            }
+
+            // New behavior: check if containing entry is a complex entry with invalid ordinal
+            // If so, use the entries list instead of reading from CLR (which would require valid ordinals)
+            if (_containingEntry is InternalComplexEntry complexEntry)
+            {
+                var ordinal = original ? complexEntry.OriginalOrdinal : complexEntry.Ordinal;
+                if (ordinal < 0)
+                {
+                    // Ordinal is -1 (entry is deleted/added), cannot safely access CLR collection
+                    var existingEntries = original ? _originalEntries : _entries;
+                    return existingEntries?.Count ?? 0;
+                }
+            }
+
+            // Normal case: read from CLR collection
+            {
+                var col = original
+                    ? (IList?)_containingEntry.GetOriginalValue(_complexCollection)
+                    : (IList?)_containingEntry[_complexCollection];
+                return col?.Count ?? 0;
+            }
+        }
 
         public List<InternalComplexEntry?> GetOrCreateEntries(
             bool original,
@@ -29,21 +69,45 @@ public partial class InternalEntryBase
         {
             IList? collection;
             int collectionCount;
-            try
+
+            if (UseOldBehavior37585)
             {
+                // Old behavior
                 collection = original
                     ? (IList?)_containingEntry.GetOriginalValue(_complexCollection)
                     : (IList?)_containingEntry[_complexCollection];
                 collectionCount = collection?.Count ?? 0;
             }
-            catch (ArgumentOutOfRangeException)
+            else
             {
-                // During state transitions, reading from the CLR collection can fail if the containing entry
-                // is a complex entry with an out-of-bounds ordinal (e.g., when deleting from a nested complex collection).
-                // In this case, use the existing entries list count which has already been initialized.
-                collection = null;
-                var existingEntries = original ? _originalEntries : _entries;
-                collectionCount = existingEntries?.Count ?? 0;
+                // New behavior: check if containing entry is a complex entry with invalid ordinal
+                if (_containingEntry is InternalComplexEntry complexEntry)
+                {
+                    var ordinal = original ? complexEntry.OriginalOrdinal : complexEntry.Ordinal;
+                    if (ordinal < 0)
+                    {
+                        // Ordinal is -1 (deleted/added), cannot safely access CLR collection
+                        collection = null;
+                        var existingEntries = original ? _originalEntries : _entries;
+                        collectionCount = existingEntries?.Count ?? 0;
+                    }
+                    else
+                    {
+                        // Normal case
+                        collection = original
+                            ? (IList?)_containingEntry.GetOriginalValue(_complexCollection)
+                            : (IList?)_containingEntry[_complexCollection];
+                        collectionCount = collection?.Count ?? 0;
+                    }
+                }
+                else
+                {
+                    // Containing entry is not a complex entry, safe to read
+                    collection = original
+                        ? (IList?)_containingEntry.GetOriginalValue(_complexCollection)
+                        : (IList?)_containingEntry[_complexCollection];
+                    collectionCount = collection?.Count ?? 0;
+                }
             }
 
             var entries = EnsureCapacity(collectionCount, original, trim: false);
@@ -376,30 +440,8 @@ public partial class InternalEntryBase
                 setOriginalState = true;
             }
 
-            // When reading collection counts, handle the case where the containing entry is a complex entry
-            // with an out-of-bounds ordinal (can happen during state transitions when deleting from nested complex collections).
-            int originalCount;
-            try
-            {
-                originalCount = ((IList?)_containingEntry.GetOriginalValue(_complexCollection))?.Count ?? 0;
-            }
-            catch (ArgumentOutOfRangeException)
-            {
-                originalCount = _originalEntries?.Count ?? 0;
-            }
-
-            int currentCount;
-            try
-            {
-                currentCount = ((IList?)_containingEntry[_complexCollection])?.Count ?? 0;
-            }
-            catch (ArgumentOutOfRangeException)
-            {
-                currentCount = _entries?.Count ?? 0;
-            }
-
-            EnsureCapacity(originalCount, original: true, trim: false);
-            EnsureCapacity(currentCount, original: false, trim: false);
+            EnsureCapacity(GetCollectionCount(original: true), original: true, trim: false);
+            EnsureCapacity(GetCollectionCount(original: false), original: false, trim: false);
 
             var defaultState = newState == EntityState.Modified && !modifyProperties
                 ? EntityState.Unchanged
