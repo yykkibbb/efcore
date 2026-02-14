@@ -287,9 +287,27 @@ public abstract class EntryPropertyValues : PropertyValues
         if (nullableComplexProperties != null && nullableComplexProperties.Count > 0)
         {
             flags = new bool[nullableComplexProperties.Count];
+            
+            // Track which complex types are null to avoid marking nested properties as null
+            var nullComplexTypes = new HashSet<IComplexType>();
+            
             for (var i = 0; i < nullableComplexProperties.Count; i++)
             {
-                flags[i] = GetValueInternal(InternalEntry, nullableComplexProperties[i]) == null;
+                var complexProperty = nullableComplexProperties[i];
+                
+                // Skip if this property is nested within a complex type that's already null
+                if (IsNestedInNullComplexType(complexProperty, nullComplexTypes))
+                {
+                    continue;
+                }
+                
+                var isNull = GetValueInternal(InternalEntry, complexProperty) == null;
+                flags[i] = isNull;
+                
+                if (isNull)
+                {
+                    nullComplexTypes.Add(complexProperty.ComplexType);
+                }
             }
         }
 
@@ -305,6 +323,20 @@ public abstract class EntryPropertyValues : PropertyValues
         }
 
         return cloned;
+    }
+    
+    private static bool IsNestedInNullComplexType(IComplexProperty complexProperty, HashSet<IComplexType> nullComplexTypes)
+    {
+        var declaringType = complexProperty.DeclaringType;
+        while (declaringType is IComplexType complexType)
+        {
+            if (nullComplexTypes.Contains(complexType))
+            {
+                return true;
+            }
+            declaringType = complexType.ComplexProperty.DeclaringType;
+        }
+        return false;
     }
 
     /// <summary>
