@@ -53,13 +53,19 @@ public class ArrayPropertyValues : PropertyValues
                 if (_nullComplexPropertyFlags[i])
                 {
                     var complexProperty = NullableComplexProperties[i];
-                    if (isValueType || isComplexType)
+                    
+                    // Only set if the complex property is declared directly on the current structural type
+                    // Nested properties will be set when ToObject() is called recursively on them
+                    if (complexProperty.DeclaringType == StructuralType)
                     {
-                        structuralObject = ((IRuntimeComplexProperty)complexProperty).GetSetter().SetClrValue(structuralObject, null);
-                    }
-                    else
-                    {
-                        ((IRuntimeComplexProperty)complexProperty).GetSetter().SetClrValueUsingContainingEntity(structuralObject, null);
+                        if (isValueType || isComplexType)
+                        {
+                            structuralObject = ((IRuntimeComplexProperty)complexProperty).GetSetter().SetClrValue(structuralObject, null);
+                        }
+                        else
+                        {
+                            ((IRuntimeComplexProperty)complexProperty).GetSetter().SetClrValueUsingContainingEntity(structuralObject, null);
+                        }
                     }
                 }
             }
