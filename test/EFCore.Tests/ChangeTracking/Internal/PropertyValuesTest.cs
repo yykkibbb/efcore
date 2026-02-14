@@ -94,6 +94,114 @@ public class PropertyValuesTest
         Assert.Null(original3.Error.InnerError); // This was causing InvalidCastException before the fix
     }
 
+    [ConditionalFact(Skip = "Complex collection with nested nullable complex properties not yet fully supported. Issue #31411")]
+    public void OriginalValues_ToObject_with_complex_collection_containing_double_nested_nullable_complex_properties()
+    {
+        var modelBuilder = InMemoryTestHelpers.Instance.CreateConventionBuilder();
+        modelBuilder.Entity<BlogWithTags>(eb =>
+        {
+            eb.ComplexCollection(e => e.Tags);
+        });
+        var model = modelBuilder.FinalizeModel();
+
+        var serviceProvider = InMemoryTestHelpers.Instance.CreateContextServices(model);
+        var stateManager = serviceProvider.GetRequiredService<IStateManager>();
+        
+        // Test with a complex collection where items have double nested nullable complex properties
+        var blog = new BlogWithTags
+        {
+            Id = 1,
+            Title = "Test Blog",
+            Tags = new List<TagWithMetadata>
+            {
+                // Tag with null Metadata (complex property is null)
+                new TagWithMetadata
+                {
+                    Name = "Tag1",
+                    Metadata = null
+                },
+                // Tag with Metadata but null nested InnerData (nested complex property is null)
+                new TagWithMetadata
+                {
+                    Name = "Tag2",
+                    Metadata = new TagMetadata
+                    {
+                        Author = "AuthorA",
+                        CreatedDate = "2024-01-01",
+                        InnerData = null
+                    }
+                },
+                // Tag with fully populated nested complex properties
+                new TagWithMetadata
+                {
+                    Name = "Tag3",
+                    Metadata = new TagMetadata
+                    {
+                        Author = "AuthorB",
+                        CreatedDate = "2024-01-02",
+                        InnerData = new InnerMetadata
+                        {
+                            Source = "SourceX"
+                        }
+                    }
+                }
+            }
+        };
+        
+        var entityEntry = stateManager.GetOrCreateEntry(blog);
+        entityEntry.SetEntityState(EntityState.Unchanged);
+        
+        var entry = new EntityEntry<BlogWithTags>(entityEntry);
+        var original = entry.OriginalValues.ToObject() as BlogWithTags;
+        
+        Assert.NotNull(original);
+        Assert.Equal("Test Blog", original.Title);
+        Assert.NotNull(original.Tags);
+        Assert.Equal(3, original.Tags.Count);
+        
+        // Verify Tag1 (null Metadata)
+        Assert.Equal("Tag1", original.Tags[0].Name);
+        Assert.Null(original.Tags[0].Metadata);
+        
+        // Verify Tag2 (Metadata populated but InnerData is null)
+        Assert.Equal("Tag2", original.Tags[1].Name);
+        Assert.NotNull(original.Tags[1].Metadata);
+        Assert.Equal("AuthorA", original.Tags[1].Metadata.Author);
+        Assert.Null(original.Tags[1].Metadata.InnerData);
+        
+        // Verify Tag3 (fully populated)
+        Assert.Equal("Tag3", original.Tags[2].Name);
+        Assert.NotNull(original.Tags[2].Metadata);
+        Assert.Equal("AuthorB", original.Tags[2].Metadata.Author);
+        Assert.NotNull(original.Tags[2].Metadata.InnerData);
+        Assert.Equal("SourceX", original.Tags[2].Metadata.InnerData.Source);
+    }
+
+    private class BlogWithTags
+    {
+        public int Id { get; set; }
+        public string Title { get; set; }
+        public List<TagWithMetadata> Tags { get; set; }
+    }
+
+    private class TagWithMetadata
+    {
+        public string Name { get; set; }
+        public TagMetadata Metadata { get; set; }
+    }
+
+    private class TagMetadata
+    {
+        public string Author { get; set; }
+        public string CreatedDate { get; set; }
+        public InnerMetadata InnerData { get; set; }
+    }
+
+    private class InnerMetadata
+    {
+        public string Source { get; set; }
+    }
+
     private class NestedComplexDb : DbContext
     {
         public DbSet<Job> Jobs { get; set; }
