@@ -492,14 +492,65 @@ public class ArrayPropertyValues : PropertyValues
             var properties = complexType.GetFlattenedProperties().AsList();
             var values = new object?[properties.Count];
 
+            // First, identify which complex properties are null (only check direct properties, not nested)
+            var nullComplexTypes = new HashSet<IComplexType>();
+            foreach (var cp in complexType.GetComplexProperties())
+            {
+                if (!cp.IsCollection && cp.IsNullable && !cp.IsShadowProperty())
+                {
+                    var isNull = cp.GetGetter().GetClrValue(complexObject) == null;
+                    if (isNull)
+                    {
+                        nullComplexTypes.Add(cp.ComplexType);
+                        // Also mark all nested complex types
+                        AddNestedComplexTypes(cp.ComplexType, nullComplexTypes);
+                    }
+                }
+            }
+
+            // Get values for flattened properties, skipping those in null complex types
             for (var i = 0; i < properties.Count; i++)
             {
                 var property = properties[i];
-                var getter = property.GetGetter();
-                values[i] = getter.GetClrValue(complexObject);
+                
+                // Skip properties declared in null complex types
+                if (IsPropertyInNullComplexType(property, nullComplexTypes))
+                {
+                    values[i] = null;
+                }
+                else
+                {
+                    var getter = property.GetGetter();
+                    values[i] = getter.GetClrValue(complexObject);
+                }
             }
 
-            var complexPropertyValues = new ArrayPropertyValues(entry, values, null);
+            // Compute null flags for nullable complex properties
+            bool[]? flags = null;
+            var nullableComplexProperties = new List<IComplexProperty>();
+            foreach (var cp in complexType.GetFlattenedComplexProperties())
+            {
+                if (!cp.IsCollection && cp.IsNullable && !cp.IsShadowProperty())
+                {
+                    nullableComplexProperties.Add(cp);
+                }
+            }
+
+            if (nullableComplexProperties.Count > 0)
+            {
+                flags = new bool[nullableComplexProperties.Count];
+
+                for (var i = 0; i < nullableComplexProperties.Count; i++)
+                {
+                    var cp = nullableComplexProperties[i];
+                    
+                    // Mark as null if in nullComplexTypes or nested in null complex type
+                    flags[i] = nullComplexTypes.Contains(cp.ComplexType)
+                        || IsNestedInNullComplexType(cp, nullComplexTypes);
+                }
+            }
+
+            var complexPropertyValues = new ArrayPropertyValues(entry, values, flags);
 
             foreach (var nestedComplexProperty in complexPropertyValues.ComplexCollectionProperties)
             {
@@ -509,6 +560,46 @@ public class ArrayPropertyValues : PropertyValues
             }
 
             return complexPropertyValues;
+        }
+        
+        static void AddNestedComplexTypes(IComplexType complexType, HashSet<IComplexType> nullComplexTypes)
+        {
+            foreach (var cp in complexType.GetComplexProperties())
+            {
+                if (!cp.IsCollection)
+                {
+                    nullComplexTypes.Add(cp.ComplexType);
+                    AddNestedComplexTypes(cp.ComplexType, nullComplexTypes);
+                }
+            }
+        }
+        
+        static bool IsPropertyInNullComplexType(IProperty property, HashSet<IComplexType> nullComplexTypes)
+        {
+            var declaringType = property.DeclaringType;
+            while (declaringType is IComplexType complexType)
+            {
+                if (nullComplexTypes.Contains(complexType))
+                {
+                    return true;
+                }
+                declaringType = complexType.ComplexProperty.DeclaringType;
+            }
+            return false;
+        }
+        
+        static bool IsNestedInNullComplexType(IComplexProperty complexProperty, HashSet<IComplexType> nullComplexTypes)
+        {
+            var declaringType = complexProperty.DeclaringType;
+            while (declaringType is IComplexType complexType)
+            {
+                if (nullComplexTypes.Contains(complexType))
+                {
+                    return true;
+                }
+                declaringType = complexType.ComplexProperty.DeclaringType;
+            }
+            return false;
         }
     }
 }
